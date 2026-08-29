@@ -98,17 +98,15 @@ async def glitch_message(ctx, mensagem, tempo=10):
     try:
         msg = await ctx.send(mensagem)
         
-        for _ in range(tempo * 2):  # Atualiza 2 vezes por segundo
+        for _ in range(tempo * 2):
             texto_glitch = glitch_text(mensagem, random.randint(2, 5))
             await msg.edit(content=texto_glitch)
             await asyncio.sleep(0.5)
             
-            # Volta ao original de vez em quando
             if random.random() < 0.1:
                 await msg.edit(content=mensagem)
                 await asyncio.sleep(0.3)
         
-        # Finaliza com a mensagem original
         await msg.edit(content=mensagem)
         
     except Exception as e:
@@ -183,7 +181,6 @@ class SpamButton(ui.View):
             texto = load_text()
             mensagem = f"{texto}\nD34TH TEAM"
             
-            # Envia com efeito glitch
             await interaction.response.send_message("Iniciando glitch...")
             msg = await interaction.original_response()
             
@@ -586,4 +583,8 @@ async def help_bot(ctx):
         inline=True
     )
     embed.add_field(
-   
+        name="AVISO",
+        value="Use com responsabilidade",
+        inline=False
+    )
+    embed.set_thumbnail(url=bot.user.avatar.url if bot.user.avatar else bo
